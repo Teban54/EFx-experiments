@@ -119,6 +119,11 @@ def write_utilities_to_file(file_name):
     print("Output written to %s." % file_name)
 
 
+# ------------------- Alpha-means --------------------- #
+
+
+
+
 if __name__ == '__main__':
     time_str = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
     Ui = generate_utilities(N, M, max_utility)
