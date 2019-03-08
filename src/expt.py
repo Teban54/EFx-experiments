@@ -121,7 +121,18 @@ def write_utilities_to_file(file_name):
 
 # ------------------- Alpha-means --------------------- #
 
+"""
+Objective:
+    max f(x) = (1/n sum_{i=1 to n} Ui(Si)^alpha) ^ (1/alpha)
+where Si is a feasible partition of the goods, Ui is the utility function for
+payer i, and alpha is a constant.
 
+This is the arithmetic mean when alpha=1, and harmonic mean when alpha=-1.
+As a special case, if alpha=0, redefine the objective as the geometric mean:
+    f(x) = (prod_{i=1 to n} Ui(Si)^alpha) ^ (1/n)
+
+The procedure below does the following:
+"""
 
 
 if __name__ == '__main__':
