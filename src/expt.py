@@ -179,7 +179,7 @@ def write_utility_matrix_to_file(matrix, file_name):
     Docs TBC
     """
     print("N = %d, M = %d" % (N, M))
-    header = "Player\\Utility"
+    header = "Player\\Item"
     decimals = 5
 
     with open(file_name, "a+") as f:
@@ -205,7 +205,7 @@ payer i, and alpha is a constant.
 
 This is the Arithmetic Mean when alpha=1, and Harmonic Mean when alpha=-1.
 As a special case, if alpha=0, redefine the objective as the Geometric Mean:
-    f(x) = (prod_{i=1 to n} Ui(Si)^alpha) ^ (1/n)
+    f(x) = (prod_{i=1 to n} Ui(Si)) ^ (1/n)
 (To make sure HM is well-defined, we add the constraint that every player is 
 allocated at least one good.)
 
@@ -261,11 +261,14 @@ def local_search(N, M, obj_func, trials=1000, Ui=None, matrix=None, verbose_leve
         objective value
     :param trials: Maximum number of iterations
     :param verbose_level: Level of printing logs
-    :return: - Value of objective function at local minimum (if found), or
+    :return: - Value of objective function at local maximum (if found), or
                last iteration (if does not converge)
-             - Allocation that achieves the local minimum (as Allocation2 object)
+             - Allocation that achieves the local maximum (as Allocation2 object)
              - Number of iterations for the local search to converge, or
                -1 if never converges
+             - Value of maximum objective function among all EFx allocations
+               found during the search
+             - Allocation that achieves the EFx max (as list of players)
     """
     d = np.random.randint(N, size=M)  # d[i] is the player that item i is allocated to
     all_allocated_one = all([np.count_nonzero(d == i) > 0 for i in range(N)])  # Make sure every player has at least one good
@@ -281,6 +284,11 @@ def local_search(N, M, obj_func, trials=1000, Ui=None, matrix=None, verbose_leve
         print()
         print('      Initial allocation: %s' % str(d))
 
+    best_EFx_obj = -1
+    best_EFx_d = None
+    if alloc.is_EFX()[0]:
+        best_EFx_obj = obj
+        best_EFx_d = list(d)
     for t in range(trials):
         local_max = obj
         local_max_item = -1
@@ -301,7 +309,7 @@ def local_search(N, M, obj_func, trials=1000, Ui=None, matrix=None, verbose_leve
             alloc.allocate(old_agent, item)  # Restore to original state
 
         if local_max == obj:  # Converged
-            return obj, alloc, t
+            return obj, alloc, t, best_EFx_obj, best_EFx_d
 
         if verbose_level >= 4:
             with open(FILE_NAME, 'a+') as f:
@@ -314,8 +322,11 @@ def local_search(N, M, obj_func, trials=1000, Ui=None, matrix=None, verbose_leve
         d[local_max_item] = local_max_new_agent
         alloc.allocate(local_max_new_agent, local_max_item)
 
+        if alloc.is_EFX()[0] and best_EFx_obj < obj:
+            best_EFx_obj = obj
+            best_EFx_d = list(d)
 
-    return obj, alloc, -1
+    return obj, alloc, -1, best_EFx_obj, best_EFx_d
 
 
 def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
@@ -348,31 +359,42 @@ def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
     max = -1
     max_alloc = None
 
+    best_EFx_obj = -1
+    best_EFx_d = None
     for t in range(T):
-        obj, alloc, num_iter = local_search(N, M, obj_func, trials_per_search, Ui, matrix, verbose_level)
+        obj, alloc, num_iter, EFx_obj, EFx_d = local_search(N, M, obj_func, trials_per_search, Ui, matrix, verbose_level)
         converged_trials += 1 if num_iter >= 0 else 0
         EFx_trials += 1 if alloc.is_EFX()[0] else 0
         if obj > max:
             max = obj
             max_alloc = alloc
+        if EFx_obj > best_EFx_obj:
+            best_EFx_obj = EFx_obj
+            best_EFx_d = EFx_d
         if verbose_level >= 3:
             with open(FILE_NAME, 'a+') as f:
                 f.write('\n')
                 f.write('    Local Search Round #%d:\n' % t)
                 f.write('    Objective value = %.5f\n' % obj)
-                f.write('    Index of player that each item is allocated to: \n' + str(alloc.get_allocation()))
+                f.write('    Index of player that each item is allocated to: ' + str(alloc.get_allocation()) + '\n')
                 f.write('    This allocation is %sEFx.\n' % ('' if alloc.is_EFX()[0] else 'not '))
                 f.write('    Local search ' + ('did not converge.' if num_iter < 0 else 'converged in %d iterations.' % num_iter) + '\n')
+                if EFx_obj > -1:
+                    f.write('  Maximum objective value of any EFx allocation across all %d local searches: %.5f\n' % (T, EFx_obj))
+                    f.write('  Its corresponding EFx allocation : ' + str(EFx_d) + '\n')
 
     if verbose_level >= 2:
         with open(FILE_NAME, 'a+') as f:
             f.write('\n')
             f.write('  alphas = %s, weights = %s\n' % (alphas, weights))
             f.write('  Maximum objective value = %.5f' % max)
-            f.write('  Index of player that each item is allocated to: \n' + str(max_alloc.get_allocation()))
+            f.write('  Index of player that each item is allocated to: ' + str(max_alloc.get_allocation()) + '\n')
             f.write('  This allocation is %sEFx.\n' % ('' if max_alloc.is_EFX()[0] else 'not '))
             f.write('  Number of converged trials: %d / %d\n' % (converged_trials, T))
             f.write('  Number of trials that give an EFx allocation: %d / %d\n' % (EFx_trials, T))
+            if best_EFx_obj > -1:
+                f.write('  Maximum objective value of any EFx allocation across all %d local searches: %.5f\n' % (T, best_EFx_obj))
+                f.write('  Its corresponding EFx allocation : ' + str(best_EFx_d) + '\n')
     return max, max_alloc.get_allocation(), max_alloc.is_EFX()[0], converged_trials, EFx_trials
 
 
