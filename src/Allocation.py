@@ -54,6 +54,10 @@ class Allocation:
 
         return EFX, max_pair
 
+
+    def __lt__(self, other):
+        assert(self.agent_number == other.agent_number)
+        assert(self.item_number == other.item_number)
     def __str__(self):
         str_out = ""
         for id in range(self.agent_number):
@@ -61,3 +65,4 @@ class Allocation:
             str_out += str(self.agent_allocation[id])
             str_out += "\n"
         return str_out
+
