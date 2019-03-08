@@ -6,6 +6,7 @@ N = 3  # Number of players
 M = 4  # Number of goods
 max_utility = 1.0  # Maximum value of any utility
 Ui = []  # List of dicts mapping a subset of goods to its utility
+matrix = None  # Utility matrix
 
 
 def power_set(n):
@@ -26,16 +27,22 @@ def power_set(n):
     return sets_without + sets_with
 
 
-def generate_utilities(N, M, max_value):
+def generate_utilities(N, M, max_value, additive, generate_dict=False):
     """
     Generate random utility functions for each player and each subset of goods.
 
+    If additive is true, we assume additive utility. The procedure will
+    generate a utility matrix A where A_ij is the value of good j to player i.
+    If required (by setting generate_dict to True), it will generate dicts
+    of subsets of goods to utilities based on the matrix.
+
+    If not, the procedure generates generic utility functions.
     Utilities are totally random except they obey the following three rules:
     1) Ui(emptyset) = 0.
     2) 0 < Ui(S) < max_bound for all S that is an nonempty subset of all goods.
     3) If S1 is a subset of S2, then Ui(S1) <= Ui(S2).
 
-    Methodology: (UP FOR DEBATE)
+    Methodology for generic utility functions: (UP FOR DEBATE)
     - For each player, consider all possible subsets of goods (i.e. power set
     of {0,1,...,M-1}), in increasing order of size.
     - For each set of goods, obtain a lower bound on its utility that is the
@@ -50,36 +57,49 @@ def generate_utilities(N, M, max_value):
     :param: N: Number of players
     :param: M: Number of goods
     :param: max_value: Maximum value of utility (float)
-    :return: List of N dicts, each mapping all possible subset of goods to
+    :param: additive: Whether the additive utility model is used
+    :param: generate_dict: If additive, whether list of dicts is needed
+    :return: - List of N dicts, each mapping all possible subset of goods to
         their utility values
+             - Utility matrix, if additive
     """
-    Us = []
+    if additive:
+        A = []
+        for i in range(N):
+            A.append([])
+            for j in range(M):
+                A[i].append(random.uniform(0, max_value))
 
-    for i in range(N):
-        U = {}
-        subsets = power_set(M)
-        subsets.sort(key=lambda s: len(s))
+        if generate_dict:
+            pass # TODO
+        return None, A
+    else:
+        Us = []
+        for i in range(N):
+            U = {}
+            subsets = power_set(M)
+            subsets.sort(key=lambda s: len(s))
 
-        for s in subsets:
-            if len(s) == 0:
-                U[s] = 0
-            else:
-                # max_bound = max_value
-                max_bound = max_value * (len(s) / M)
-                min_bound = 0
-                for k in s:
-                    # Make sure U(s) > U(s\{k})
-                    s_remove = set(s)
-                    s_remove.remove(k)
-                    min_bound = max(min_bound, U[frozenset(s_remove)])
-                val = random.uniform(min_bound, max_bound)
-                while val == min_bound or val == max_bound:
+            for s in subsets:
+                if len(s) == 0:
+                    U[s] = 0
+                else:
+                    # max_bound = max_value
+                    max_bound = max_value * (len(s) / M)
+                    min_bound = 0
+                    for k in s:
+                        # Make sure U(s) > U(s\{k})
+                        s_remove = set(s)
+                        s_remove.remove(k)
+                        min_bound = max(min_bound, U[frozenset(s_remove)])
                     val = random.uniform(min_bound, max_bound)
-                U[s] = val
+                    while val == min_bound or val == max_bound:
+                        val = random.uniform(min_bound, max_bound)
+                    U[s] = val
 
-        Us.append(U)
+            Us.append(U)
 
-    return Us
+        return Us
 
 
 def write_utilities_to_file(file_name):
@@ -119,6 +139,25 @@ def write_utilities_to_file(file_name):
     print("Output written to %s." % file_name)
 
 
+def print_utility_matrix(matrix):
+    """
+    Print the utility matrix.
+    """
+    print("N = %d, M = %d" % (N, M))
+    header = "Player\\Utility"
+    decimals = 5
+    line = header
+    for j in range(M):
+        line += " " + str(j) + " " * (decimals + 2 - len(str(j)))
+    print(line)
+
+    for i in range(N):
+        line = str(i) + " " * (len(header) - len(str(i)))
+        for j in range(M):
+            line += (" %." + str(decimals) + "f") % matrix[i][j]
+        print(line)
+
+
 # ------------------- Alpha-means --------------------- #
 
 """
@@ -137,5 +176,6 @@ The procedure below does the following:
 
 if __name__ == '__main__':
     time_str = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
-    Ui = generate_utilities(N, M, max_utility)
-    write_utilities_to_file(time_str + "_Utilities.txt")
+    Ui, matrix = generate_utilities(N, M, max_utility, additive=True, generate_dict=False)
+    # write_utilities_to_file(time_str + "_Utilities.txt")
+    print_utility_matrix(matrix)
