@@ -55,9 +55,44 @@ class Allocation:
         return EFX, max_pair
 
 
+    def utility_measure(self):
+        utility = []
+        for id in range(self.agent_number):
+            u = 0
+            for item in self.agent_allocation[id]:
+                u += self.evaluation_matrix[id][item]
+            utility.append(u)
+        utility.sort()
+        return utility
+
     def __lt__(self, other):
         assert(self.agent_number == other.agent_number)
         assert(self.item_number == other.item_number)
+        utility1 = self.utility_measure()
+        utility2 = other.utility_measure()
+        for i, u1 in enumerate(utility1):
+            u2 = utility2[i]
+            if u1 < u2:
+                return True
+            elif u1 > u2:
+                return False
+        return True
+
+    def __lt__(self, other):
+        assert(self.agent_number == other.agent_number)
+        assert(self.item_number == other.item_number)
+        utility1 = self.utility_measure()
+        utility2 = other.utility_measure()
+        for i, u1 in enumerate(utility1):
+            u2 = utility2[i]
+            if u1 < u2:
+                return True
+            elif u1 > u2:
+                return False
+        return True
+
+
+
     def __str__(self):
         str_out = ""
         for id in range(self.agent_number):
