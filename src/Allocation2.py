@@ -1,5 +1,5 @@
 class Allocation2:
-    def __init__(self, agent_number, item_number, evaluation_matrix=None, utility_dict=None):
+    def __init__(self, agent_number, item_number, evaluation_matrix=None, utility_dict=None, allocations=None):
         self.agent_number = agent_number
         self.item_number = item_number
         self.item_allocation = dict()
@@ -8,6 +8,12 @@ class Allocation2:
             self.agent_allocation[i] = set()
         self.evaluation_matrix = evaluation_matrix  # For additive utilities only
         self.utility_dict = utility_dict  # For generic case
+
+        # Initialize if initial allocation is given
+        # (allocations[i] is the player that item i is allocated to)
+        if allocations is not None:
+            for i in range(item_number):
+                self.allocate(allocations[i], i)
 
     @staticmethod
     def is_valid(id, limit):
@@ -26,6 +32,13 @@ class Allocation2:
             return True
         else:
             return False
+
+    def get_allocation(self):
+        """
+        Return the current allocation of each item.
+        :return: New list with the player that each item is allocated to
+        """
+        return [self.item_allocation[i] for i in range(self.item_number)]
 
     def evaluate_utility(self, agent_id, items=None):
         """
@@ -98,8 +111,6 @@ class Allocation2:
             elif u1 > u2:
                 return False
         return True
-
-
 
     def __str__(self):
         str_out = ""
