@@ -54,7 +54,6 @@ class Allocation:
 
         return EFX, max_pair
 
-
     def utility_measure(self):
         utility = []
         for id in range(self.agent_number):
