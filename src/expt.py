@@ -3,7 +3,8 @@ import random
 import numpy as np
 
 N = 3  # Number of players
-M = 4  # Number of goods
+M = 8  # Number of goods
+T = 10 # Number of random iterations for each utility function
 max_utility = 1.0  # Maximum value of any utility
 Ui = []  # List of dicts mapping a subset of goods to its utility
 matrix = None  # Utility matrix
@@ -54,11 +55,11 @@ def generate_utilities(N, M, max_value, additive, generate_dict=False):
 
     Note: This procedure runs in O(N * 2^M * M).
 
-    :param: N: Number of players
-    :param: M: Number of goods
-    :param: max_value: Maximum value of utility (float)
-    :param: additive: Whether the additive utility model is used
-    :param: generate_dict: If additive, whether list of dicts is needed
+    :param N: Number of players
+    :param M: Number of goods
+    :param max_value: Maximum value of utility (float)
+    :param additive: Whether the additive utility model is used
+    :param generate_dict: If additive, whether list of dicts is needed
     :return: - List of N dicts, each mapping all possible subset of goods to
         their utility values
              - Utility matrix, if additive
@@ -112,7 +113,7 @@ def write_utilities_to_file(file_name):
     :param file_name: Name of output file
     """
     decimals = 5
-    with open(file_name, "w+") as f:
+    with open(file_name, "a+") as f:
         f.write("Goods")
         for i in range(N):
             f.write(" " + str(i))
@@ -158,6 +159,27 @@ def print_utility_matrix(matrix):
         print(line)
 
 
+def write_utility_matrix_to_file(matrix, file_name):
+    """
+    Docs TBC
+    """
+    print("N = %d, M = %d" % (N, M))
+    header = "Player\\Utility"
+    decimals = 5
+
+    with open(file_name, "a+") as f:
+        line = header
+        for j in range(M):
+            line += " " + str(j) + " " * (decimals + 2 - len(str(j)))
+        f.write(line + "\n")
+
+        for i in range(N):
+            line = str(i) + " " * (len(header) - len(str(i)))
+            for j in range(M):
+                line += (" %." + str(decimals) + "f") % matrix[i][j]
+            f.write(line + "\n")
+
+
 # ------------------- Alpha-means --------------------- #
 
 """
@@ -166,16 +188,66 @@ Objective:
 where Si is a feasible partition of the goods, Ui is the utility function for
 payer i, and alpha is a constant.
 
-This is the arithmetic mean when alpha=1, and harmonic mean when alpha=-1.
-As a special case, if alpha=0, redefine the objective as the geometric mean:
+This is the Arithmetic Mean when alpha=1, and Harmonic Mean when alpha=-1.
+As a special case, if alpha=0, redefine the objective as the Geometric Mean:
     f(x) = (prod_{i=1 to n} Ui(Si)^alpha) ^ (1/n)
 
-The procedure below does the following:
+The procedure below does the following for each utility function:
+1. Generate a random allocation and calculate the objective value.
+2. From there, do a local search over allocations by repeatedly trying to 
+    allocate a good to someone else if that gives a lower objective value.
+3. When a local minimum is found, check if it's EFx and print the allocation.
+4. Repeat step 1 on different random allocations T times.
 """
 
 
+def calc_objective(list, alpha):
+    """
+    Given a list of utility values, calculate the objective function with a
+    single alpha.
+    :param list: List of utilities
+    :param alpha: Alpha (exponent)
+    :return: Objective value
+    """
+    n = len(list)
+    if alpha == 0:
+        # Special case: GM
+        prod = 1.0
+        for u in list:
+            prod *= u
+        return prod ** (1/n)
+
+    sum = (1/n) * sum([u ** alpha for u in list])
+    return sum ** (1/alpha)
+
+
+def calc_objective(list, alphas, weights):
+    """
+    Given a list of utility values, calculate the objective function as a
+    linear combinaion of sums with different alphas.
+    :param list: List of utilities
+    :param alphas: List of alphas (exponent)
+    :param weights: List of weights for each corresponding alpha
+    :return: Objective value
+    """
+    sum_weights = sum(weights)
+    if sum_weights != 0:
+        weights = [w / sum_weights for w in weights]
+    return sum([calc_objective(list, alphas[i]) * weights[i]
+                for i in range(len(alphas))])
+
+
+def local_search():
+    pass
+
+
+# ------------------- Main --------------------- #
+
 if __name__ == '__main__':
     time_str = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
+    file_name = time_str + ".txt"
     Ui, matrix = generate_utilities(N, M, max_utility, additive=True, generate_dict=False)
-    # write_utilities_to_file(time_str + "_Utilities.txt")
+    # write_utilities_to_file(file_name)
     print_utility_matrix(matrix)
+
+
