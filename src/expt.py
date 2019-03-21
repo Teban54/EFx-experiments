@@ -4,8 +4,8 @@ import numpy as np
 from Allocation2 import Allocation2
 
 N = 3  # Number of players
-M = 15  # Number of goods
-trials_different_funcs = 1000  # Number of experiments with random utility functions
+M = 10  # Number of goods
+trials_different_funcs = 50000  # Number of experiments with random utility functions
 trials_per_func = 10  # Number of random iterations for each utility function
 trials_per_search = 1000  # Number of iterations per local search
 max_utility = 1.0  # Maximum value of any utility
@@ -22,6 +22,7 @@ weights = [[1]]
 #    weights.append([1])
 
 CONTINUE_GLOBAL_SEARCH = True  # After finding a local maximum that is not EFx, do a brute-force search to find a global optimum
+PERTURB_AFTER_FAIL = True  # After finding a local maximum that is not EFx, perturb 1 item allocation BASED ON GLOBAL MAXIMUM to check EFx
 verbose_level = 2
 
 FILE_NAME = ''
@@ -400,6 +401,30 @@ def global_serach(N, M, obj_func, Ui=None, matrix=None, index=0,
     return best_obj, best_obj_alloc, best_EFx_obj, best_EFx_d
 
 
+def perturb_alloc(N, M, alloc, verbose_level=0):
+    """
+    Given an allocation that is not EFx, try reassigning one of the goods
+    and see if any reallocation results in an EFx solution.
+    :param alloc: Current allocation (as Allocation2 object)
+    :return: Perturbed allocation that is EFx (as list of players),
+        or None if does not exist
+    """
+    d = alloc.get_allocation()
+    for i in range(M):
+        old = d[i]
+        if np.count_nonzero(np.array(d) == i) == 1:  # old only has 1 good
+            continue
+        for new in range(N):
+            if new == old:
+                continue
+            alloc.allocate(new, i)
+            if alloc.is_EFX()[0]:
+                d[i] = new
+                alloc.allocate(old, i)  # Restore alloc
+                return d
+        alloc.allocate(old, i)  # Restore alloc
+    return None
+
 
 def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
     """
@@ -424,6 +449,8 @@ def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
              - Global maximum objective value of any EFx solution, if the local
                 search maximum is not EFx
              - Allocation that gives such an objective (as list of players)
+             - Perturbed allocation from the maximum local search objective
+               that is EFx, or None if does not exist
     """
     def obj_func(alloc):
         """
@@ -472,6 +499,12 @@ def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
             global_serach(N, M, obj_func, Ui, matrix,
                           verbose_level=verbose_level)
 
+    perturbed_alloc = None
+    if not max_alloc.is_EFX()[0] and CONTINUE_GLOBAL_SEARCH \
+            and not global_max_alloc.is_EFX()[0] and PERTURB_AFTER_FAIL:
+        #perturbed_alloc = perturb_alloc(N, M, max_alloc, verbose_level)
+        perturbed_alloc = perturb_alloc(N, M, global_max_alloc, verbose_level)
+
     if verbose_level >= 2:
         with open(FILE_NAME, 'a+') as f:
             f.write('\n')
@@ -490,20 +523,28 @@ def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
                 f.write('  This allocation is %sEFx.\n' % ('' if global_max_alloc.is_EFX()[0] else 'not '))
                 f.write('  Maximum objective value of any EFx allocation (from global search): %.5f\n' % global_EFx_max)
                 f.write('  Its corresponding EFx allocation: ' + str(global_EFx_d) + '\n')
+            if not max_alloc.is_EFX()[0] and CONTINUE_GLOBAL_SEARCH \
+                    and not global_max_alloc.is_EFX()[0] and PERTURB_AFTER_FAIL:
+                if perturbed_alloc is not None:
+                    f.write('  Reassigning 1 item from the GLOBAL max objective solution gives an EFx allocation: ' + str(perturbed_alloc) + '\n')
+                else:
+                    f.write('  No perturbed allocations from the GLOBAL max objective solution are EFx.\n')
 
     return max, max_alloc.get_allocation(), max_alloc.is_EFX()[0], \
            converged_trials, EFx_trials, global_max, global_max_alloc, \
-           global_max_alloc is None or global_max_alloc.is_EFX()[0], global_EFx_max, global_EFx_d
+           global_max_alloc is None or global_max_alloc.is_EFX()[0], global_EFx_max, global_EFx_d, \
+           perturbed_alloc
 
 
 # ------------------- Main --------------------- #
 
 if __name__ == '__main__':
     time_str = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
-    file_name = time_str + ".txt"
+    file_name = time_str + " N=" + str(N) + " M=" + str(M) + ".txt"
     FILE_NAME = file_name
 
     EFx_successes = np.zeros(len(alphas))  # Number of EFx trials for each (alpha, weight) set
+    EFx_successes_perturbed = np.zeros(len(alphas))  # Number of EFx trials after perturbing for each (alpha, weight) set
     global_EFx_successes = np.zeros(len(alphas))  # Number of trials with the global maximum being EFx for each (alpha, weight) set
     most_EFx = -1  # Utility function with most (alpha, weight) pairs being EFx
     most_EFx_util = None
@@ -517,6 +558,10 @@ if __name__ == '__main__':
     least_global_EFx_util = None
     least_global_EFx_ties = 0
     least_global_EFx_index = -1
+    least_EFx_perturbed = 100000000  # Utility function with fewest (alpha, weight) pairs being EFx after perturbing
+    least_EFx_perturbed_util = None
+    least_EFx_perturbed_ties = 0
+    least_EFx_perturbed_index = -1
     for t in range(trials_different_funcs):
         if verbose_level >= 0:
             print()
@@ -532,20 +577,25 @@ if __name__ == '__main__':
 
         EFx_members = 0
         global_EFx_members = 0
+        EFx_members_perturbed = 0
         for test in range(len(alphas)):
             alpha = alphas[test]
             weight = weights[test]
             max, max_d, is_EFx, converge, EFx_trials, \
                 global_max, global_max_d, global_is_EFx, \
-                global_EFx_max, global_EFx_d = experiment(
+                global_EFx_max, global_EFx_d, perturbed_d = experiment(
                     N, M, alpha, weight, trials_per_func, Ui, matrix,
                     verbose_level)
             EFx_successes[test] += 1 if is_EFx else 0
             if CONTINUE_GLOBAL_SEARCH:
                 global_EFx_successes[test] += 1 if global_is_EFx else 0
+            if PERTURB_AFTER_FAIL:
+                EFx_successes_perturbed[test] += 1 if (is_EFx or global_is_EFx or perturbed_d) else 0
             EFx_members += 1 if is_EFx else 0
             if CONTINUE_GLOBAL_SEARCH:
                 global_EFx_members += 1 if global_is_EFx else 0
+            if PERTURB_AFTER_FAIL:
+                EFx_members_perturbed += 1 if (is_EFx or global_is_EFx or perturbed_d) else 0
 
         if EFx_members > most_EFx:
             most_EFx = EFx_members
@@ -569,6 +619,14 @@ if __name__ == '__main__':
                 least_global_EFx_index = t
             elif global_EFx_members == least_global_EFx:
                 least_global_EFx_ties += 1
+        if PERTURB_AFTER_FAIL:
+            if EFx_members_perturbed < least_EFx_perturbed:
+                least_EFx_perturbed = EFx_members_perturbed
+                least_EFx_perturbed_util = matrix
+                least_EFx_perturbed_ties = 1
+                least_EFx_perturbed_index = t
+            elif EFx_members_perturbed == least_EFx_perturbed:
+                least_EFx_perturbed_ties += 1
 
     print()
     for test in range(len(alphas)):
@@ -584,3 +642,7 @@ if __name__ == '__main__':
         print('%d utility matrices have the least alphas not having a global EFx allocation (%d / %d). One of them is: (#%d)'
               % (least_global_EFx_ties, least_global_EFx, len(alphas), least_global_EFx_index))
         print_utility_matrix(least_global_EFx_util)
+    if PERTURB_AFTER_FAIL:
+        print('%d utility matrices have the least alphas not having a EFx allocation after perturbing (%d / %d) from the GLOBAL max. One of them is: (#%d)'
+              % (least_EFx_perturbed_ties, least_EFx_perturbed, len(alphas), least_EFx_perturbed_index))
+        print_utility_matrix(least_EFx_perturbed_util)
