@@ -4,8 +4,8 @@ import numpy as np
 from Allocation2 import Allocation2
 
 N = 3  # Number of players
-M = 8  # Number of goods
-trials_different_funcs = 300  # Number of experiments with random utility functions
+M = 15  # Number of goods
+trials_different_funcs = 1000  # Number of experiments with random utility functions
 trials_per_func = 10  # Number of random iterations for each utility function
 trials_per_search = 1000  # Number of iterations per local search
 max_utility = 1.0  # Maximum value of any utility
@@ -15,12 +15,13 @@ additive = True
 
 #alphas = [[1], [0], [-1]]  # List of experiments: each experiment has a number of alpha's with weights
 #weights = [[1], [1], [1]]
-alphas = []
-weights = []
-for i in range(41):
-    alphas.append([-2 + i * 0.1])
-    weights.append([1])
+alphas = [[0]]
+weights = [[1]]
+#for i in range(41):
+#    alphas.append([-2 + i * 0.1])
+#    weights.append([1])
 
+CONTINUE_GLOBAL_SEARCH = True  # After finding a local maximum that is not EFx, do a brute-force search to find a global optimum
 verbose_level = 2
 
 FILE_NAME = ''
@@ -162,6 +163,10 @@ def print_utility_matrix(matrix):
     print("N = %d, M = %d" % (N, M))
     header = "Player\\Item"
     decimals = 5
+
+    if matrix is None:
+        print('None')
+        return
     line = header
     for j in range(M):
         line += " " + str(j) + " " * (decimals + 2 - len(str(j)))
@@ -178,11 +183,14 @@ def write_utility_matrix_to_file(matrix, file_name):
     """
     Docs TBC
     """
-    print("N = %d, M = %d" % (N, M))
     header = "Player\\Item"
     decimals = 5
 
     with open(file_name, "a+") as f:
+        f.write("N = %d, M = %d\n" % (N, M))
+        if matrix is None:
+            f.write('None\n')
+            return
         line = header
         for j in range(M):
             line += " " + str(j) + " " * (decimals + 2 - len(str(j)))
@@ -329,6 +337,70 @@ def local_search(N, M, obj_func, trials=1000, Ui=None, matrix=None, verbose_leve
     return obj, alloc, -1, best_EFx_obj, best_EFx_d
 
 
+def global_serach(N, M, obj_func, Ui=None, matrix=None, index=0,
+                  alloc=None, verbose_level=0):
+    """
+    Perform a single global search recursively.
+    :param obj_func: Function that takes in an allocation and returns an
+        objective value
+    :param index: Index of the next item to be allocated (Recursion variable)
+    :param alloc: Current allocations of items up to index (as Allocation2
+        object), or None if hasn't started
+    :param verbose_level: Level of printing logs
+    :return: - Value of objective function at global maximum (this itr only),
+               or -1 if invalid
+             - Allocation that achieves the global maximum (as Allocation2 object)
+             - Value of maximum objective function among all EFx allocations
+               found during the search, or -1 if not found
+             - Allocation that achieves the EFx max (as list of players)
+    """
+    alloc = alloc or Allocation2(N, M, utility_dict=Ui,
+                                 evaluation_matrix=matrix)
+
+    if index == M:
+        alloc_list = alloc.get_allocation()
+
+        # Verify each agent is allocated at least 1 item
+        all_allocated_one = all(
+            [np.count_nonzero(np.array(alloc_list) == i) > 0 for i in range(N)])
+        if not all_allocated_one:
+            return -1, None, -1, None
+
+        obj = obj_func(alloc)
+        best_EFx_obj = -1
+        best_EFx_d = None
+        if alloc.is_EFX()[0]:
+            best_EFx_obj = obj
+            best_EFx_d = list(alloc_list)
+        return (obj,
+                Allocation2(N, M, utility_dict=Ui,  # Clone the alloc object
+                            evaluation_matrix=matrix, allocations=alloc_list),
+                best_EFx_obj, best_EFx_d)
+
+    best_obj = -1
+    best_obj_alloc = None
+    best_EFx_obj = -1
+    best_EFx_d = None
+    for i in range(N):  # Allocate the next item
+        alloc.allocate(i, index)
+        # Do not need to clone the alloc object: Changing it doesn't matter
+        # as long as the allocation is never used before index=M
+        obj, obj_alloc, EFx_obj, EFx_d = global_serach(
+            N, M, obj_func, Ui=Ui, matrix=matrix, index=index+1, alloc=alloc,
+            verbose_level=verbose_level)
+        if obj > best_obj or (obj == best_obj > -1 and obj_alloc.isEFx()[0]
+                              and not best_obj_alloc.isEFx()[0]):
+            # ^ Careful: Need to make sure best_obj is EFx whenever possible
+            best_obj = obj
+            best_obj_alloc = obj_alloc
+        if EFx_obj > best_EFx_obj:
+            best_EFx_obj = EFx_obj
+            best_EFx_d = EFx_d
+
+    return best_obj, best_obj_alloc, best_EFx_obj, best_EFx_d
+
+
+
 def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
     """
     Perform the experiment described above for a fixed utility function.
@@ -336,7 +408,7 @@ def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
     :param M: Number of items
     :param alphas: List of alphas (exponent)
     :param weights: List of weights for each corresponding alpha
-    :param T: Number of trials with random initialization
+    :param T: Number of local search trials with random initialization
     :param Ui: Utility function as dict, if applicable
     :param matrix: Utility function as matrix, if applicable
     :param verbose_level: Level of printing logs
@@ -345,6 +417,13 @@ def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
              - Whether this allocation is EFx
              - Number of converged trials (out of T)
              - Number of trials that gave an EFx allocation
+             - Global maximum objective value if the local search maximum is
+                not EFx
+             - Allocation that gives global objective (as list of players)
+             - Whether this global maximum allocation is EFx
+             - Global maximum objective value of any EFx solution, if the local
+                search maximum is not EFx
+             - Allocation that gives such an objective (as list of players)
     """
     def obj_func(alloc):
         """
@@ -383,19 +462,38 @@ def experiment(N, M, alphas, weights, T, Ui=None, matrix=None, verbose_level=0):
                     f.write('  Maximum objective value of any EFx allocation across all %d local searches: %.5f\n' % (T, EFx_obj))
                     f.write('  Its corresponding EFx allocation : ' + str(EFx_d) + '\n')
 
+    global_max = -1
+    global_max_alloc = None
+    global_EFx_max = -1
+    global_EFx_d = None
+    if not max_alloc.is_EFX()[0] and CONTINUE_GLOBAL_SEARCH:
+        # Local search is not EFx: perform global search
+        global_max, global_max_alloc, global_EFx_max, global_EFx_d = \
+            global_serach(N, M, obj_func, Ui, matrix,
+                          verbose_level=verbose_level)
+
     if verbose_level >= 2:
         with open(FILE_NAME, 'a+') as f:
             f.write('\n')
             f.write('  alphas = %s, weights = %s\n' % (alphas, weights))
-            f.write('  Maximum objective value = %.5f' % max)
+            f.write('  Maximum objective value (from local search) = %.5f\n' % max)
             f.write('  Index of player that each item is allocated to: ' + str(max_alloc.get_allocation()) + '\n')
             f.write('  This allocation is %sEFx.\n' % ('' if max_alloc.is_EFX()[0] else 'not '))
             f.write('  Number of converged trials: %d / %d\n' % (converged_trials, T))
             f.write('  Number of trials that give an EFx allocation: %d / %d\n' % (EFx_trials, T))
             if best_EFx_obj > -1:
                 f.write('  Maximum objective value of any EFx allocation across all %d local searches: %.5f\n' % (T, best_EFx_obj))
-                f.write('  Its corresponding EFx allocation : ' + str(best_EFx_d) + '\n')
-    return max, max_alloc.get_allocation(), max_alloc.is_EFX()[0], converged_trials, EFx_trials
+                f.write('  Its corresponding EFx allocation: ' + str(best_EFx_d) + '\n')
+            if global_max > -1:
+                f.write('  Global maximum objective value = %.5f\n' % global_max)
+                f.write('  Index of player that each item is allocated to: ' + str(global_max_alloc.get_allocation()) + '\n')
+                f.write('  This allocation is %sEFx.\n' % ('' if global_max_alloc.is_EFX()[0] else 'not '))
+                f.write('  Maximum objective value of any EFx allocation (from global search): %.5f\n' % global_EFx_max)
+                f.write('  Its corresponding EFx allocation: ' + str(global_EFx_d) + '\n')
+
+    return max, max_alloc.get_allocation(), max_alloc.is_EFX()[0], \
+           converged_trials, EFx_trials, global_max, global_max_alloc, \
+           global_max_alloc is None or global_max_alloc.is_EFX()[0], global_EFx_max, global_EFx_d
 
 
 # ------------------- Main --------------------- #
@@ -406,14 +504,19 @@ if __name__ == '__main__':
     FILE_NAME = file_name
 
     EFx_successes = np.zeros(len(alphas))  # Number of EFx trials for each (alpha, weight) set
+    global_EFx_successes = np.zeros(len(alphas))  # Number of trials with the global maximum being EFx for each (alpha, weight) set
     most_EFx = -1  # Utility function with most (alpha, weight) pairs being EFx
     most_EFx_util = None
     most_EFx_ties = 0
     most_EFx_index = -1
-    least_EFx = 100000000  # Utility function with most (alpha, weight) pairs being EFx
+    least_EFx = 100000000  # Utility function with fewest (alpha, weight) pairs being EFx
     least_EFx_util = None
     least_EFx_ties = 0
     least_EFx_index = -1
+    least_global_EFx = 100000000  # Utility function with fewest (alpha, weight) pairs being globally EFx
+    least_global_EFx_util = None
+    least_global_EFx_ties = 0
+    least_global_EFx_index = -1
     for t in range(trials_different_funcs):
         if verbose_level >= 0:
             print()
@@ -421,18 +524,28 @@ if __name__ == '__main__':
         Ui, matrix = generate_utilities(N, M, max_utility, additive=additive, generate_dict=False)
         # write_utilities_to_file(file_name)
         with open(file_name, 'a+') as f:
+            f.write('\n')
             f.write('Utility matrix %d:\n' % t)
         write_utility_matrix_to_file(matrix, file_name)
         if verbose_level >= 1:
             print_utility_matrix(matrix)
 
         EFx_members = 0
+        global_EFx_members = 0
         for test in range(len(alphas)):
             alpha = alphas[test]
             weight = weights[test]
-            max, max_d, is_EFx, converge, EFx_trials = experiment(N, M, alpha, weight, trials_per_func, Ui, matrix, verbose_level)
+            max, max_d, is_EFx, converge, EFx_trials, \
+                global_max, global_max_d, global_is_EFx, \
+                global_EFx_max, global_EFx_d = experiment(
+                    N, M, alpha, weight, trials_per_func, Ui, matrix,
+                    verbose_level)
             EFx_successes[test] += 1 if is_EFx else 0
+            if CONTINUE_GLOBAL_SEARCH:
+                global_EFx_successes[test] += 1 if global_is_EFx else 0
             EFx_members += 1 if is_EFx else 0
+            if CONTINUE_GLOBAL_SEARCH:
+                global_EFx_members += 1 if global_is_EFx else 0
 
         if EFx_members > most_EFx:
             most_EFx = EFx_members
@@ -448,6 +561,14 @@ if __name__ == '__main__':
             least_EFx_index = t
         elif EFx_members == least_EFx:
             least_EFx_ties += 1
+        if CONTINUE_GLOBAL_SEARCH:
+            if global_EFx_members < least_global_EFx:
+                least_global_EFx = global_EFx_members
+                least_global_EFx_util = matrix
+                least_global_EFx_ties = 1
+                least_global_EFx_index = t
+            elif global_EFx_members == least_global_EFx:
+                least_global_EFx_ties += 1
 
     print()
     for test in range(len(alphas)):
@@ -457,5 +578,9 @@ if __name__ == '__main__':
     print()
     print('%d utility matrices have the most alphas being EFx (%d / %d). One of them is: (#%d)' % (most_EFx_ties, most_EFx, len(alphas), most_EFx_index))
     print_utility_matrix(most_EFx_util)
-    print('%d utility matrices have the with least alphas being EFx (%d / %d). One of them is: (#%d)' % (least_EFx_ties, least_EFx, len(alphas), least_EFx_index))
+    print('%d utility matrices have the least alphas being EFx (%d / %d). One of them is: (#%d)' % (least_EFx_ties, least_EFx, len(alphas), least_EFx_index))
     print_utility_matrix(least_EFx_util)
+    if CONTINUE_GLOBAL_SEARCH:
+        print('%d utility matrices have the least alphas not having a global EFx allocation (%d / %d). One of them is: (#%d)'
+              % (least_global_EFx_ties, least_global_EFx, len(alphas), least_global_EFx_index))
+        print_utility_matrix(least_global_EFx_util)
